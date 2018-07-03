@@ -7,8 +7,8 @@ green=`tput setaf 2`
 reset=`tput sgr0`
 # e.g. echo "${red}The red tail hawk ${green}loves the green grass${reset}"
 
-LIBREALSENSE_DIRECTORY=${HOME}/librealsense
-LIBREALSENSE_VERSION=v2.10.4
+LIBREALSENSE_DIRECTORY=${HOME}/repositories/librealsense
+LIBREALSENSE_VERSION=v2.13.0
 
 echo ""
 echo "Please make sure that no RealSense cameras are currently attached"
@@ -19,7 +19,8 @@ echo ""
 INSTALL_DIR=$PWD
 if [ ! -d "$LIBREALSENSE_DIRECTORY" ] ; then
   # clone librealsense
-  cd ${HOME}
+  mkdir -p ${HOME}/repositories
+  cd ${HOME}/repositories
   echo "${green}Cloning librealsense${reset}"
   git clone https://github.com/IntelRealSense/librealsense.git
 fi
@@ -48,27 +49,35 @@ git checkout $LIBREALSENSE_VERSION
 cd $INSTALL_DIR
 sudo ./scripts/installDependencies.sh
 
+# Check CMake Version
+function version_gt() { test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"; }
+CMAKE_VERSION=$(cmake --version | grep "version" | cut -d " " -f 3)
+if version_gt "3.8.0" $CMAKE_VERSION; then
+   echo "CMake Version should be greater than 3.8+ , current version is "$CMAKE_VERSION
+   exit 1
+fi
+
 cd $LIBREALSENSE_DIRECTORY
 git checkout $LIBREALSENSE_VERSION
-echo "${green}Applying Device Bus Patch${reset}"
+#echo "${green}Applying Device Bus Patch${reset}"
 # Some assumptions are made about how devices attach in the library.
 # The Jetson has some devices onboard (the ina3221x power monitor, camera module) 
 # that do not report on the USB bus as the library expects.
 # This patch is a work around to avoid spamming the console
-patch -p1 -i $INSTALL_DIR/patches/internalbus.patch
+#patch -p1 -i $INSTALL_DIR/patches/internalbus.patch
 
-echo "${green}Applying Model-Views Patch${reset}"
+#echo "${green}Applying Model-Views Patch${reset}"
 # The render loop of the post processing does not yield; add a sleep
-patch -p1 -i $INSTALL_DIR/patches/model-views.patch
+#patch -p1 -i $INSTALL_DIR/patches/model-views.patch
 
-echo "${green}Applying AVC Switch Patch${reset}"
+#echo "${green}Applying AVC Switch Patch${reset}"
 # The CMakeLists.txt references the -mavx2 switch, which is not available
 # on the Jetson. This patch simply comments it out
-patch -p1 -i $INSTALL_DIR/patches/avxSwitch.patch
+#patch -p1 -i $INSTALL_DIR/patches/avxSwitch.patch
 
-echo "${green}Applying CUDA Enhancement Patch${reset}"
+#echo "${green}Applying CUDA Enhancement Patch${reset}"
 # Add CUDA code to translate uyvy to RGB/BGR/RGBA/BGRA
-patch -p1 -i $INSTALL_DIR/patches/cudaImage.patch
+#patch -p1 -i $INSTALL_DIR/patches/cudaImage.patch
 
 echo "${green}Applying udev rules${reset}"
 # Copy over the udev rules so that camera can be run from user space
@@ -77,10 +86,10 @@ sudo udevadm control --reload-rules && udevadm trigger
 
 # Now compile librealsense and install
 mkdir build && cd build
-# Build examples, including graphical ones
+
 echo "${green}Configuring Make system${reset}"
-# Build with CUDA (default), the CUDA flag is USE_CUDA, ie -DUSE_CUDA=true
-cmake ../ -DBUILD_EXAMPLES=true
+# Build with CUDA 
+cmake ../ -DBUILD_EXAMPLES=false -DBUILD_GRAPHICAL_EXAMPLES=false -DBUILD_WITH_CUDA=true
 # The library will be installed in /usr/local/lib, header files in /usr/local/include
 # The demos, tutorials and tests will located in /usr/local/bin.
 echo "${green}Building librealsense, headers, tools and demos${reset}"
@@ -96,6 +105,3 @@ echo "The demos and tools are located in /usr/local/bin"
 echo " "
 echo " -----------------------------------------"
 echo " "
-
-
-

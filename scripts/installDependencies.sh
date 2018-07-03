@@ -22,7 +22,7 @@ apt-get install cmake-curses-gui -y
 apt-get install libglfw3-dev libgtk-3-dev -y
 
 # QtCreator for development; not required for librealsense core library
-apt-get install qtcreator -y
+#apt-get install qtcreator -y
 
 # From /etc/init/nv.conf
 
@@ -51,4 +51,3 @@ apt-get install qtcreator -y
 	if [ -e "/var/lib/lightdm" ]; then
 		sudo chown lightdm:lightdm /var/lib/lightdm -R
 	fi
-

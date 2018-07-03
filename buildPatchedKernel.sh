@@ -1,24 +1,24 @@
 #!/bin/bash
 # Patch the kernel for the Intel Realsense library librealsense on a Jetson TX Development Kit
-# Copyright (c) 2016-18 Jetsonhacks 
+# Copyright (c) 2016-18 Jetsonhacks
 # MIT License
 
 # Error out if something goes wrong
 set -e
 
-CLEANUP=true
+CLEANUP=false
 
 function usage
 {
-    echo "usage: ./buildPatchedKernel.sh [[-n nocleanup ] | [-h]]"
-    echo "-n | --nocleanup   Do not remove kernel and module sources after build"
+    echo "usage: ./buildPatchedKernel.sh [[-c cleanup ] | [-h]]"
+    echo "-c | --cleanup   Do not remove kernel and module sources after build"
     echo "-h | --help  This message"
 }
 
 # Iterate through command line inputs
 while [ "$1" != "" ]; do
     case $1 in
-        -n | --nocleanup )      CLEANUP=false
+        -c | --cleanup )        CLEANUP=true
                                 ;;
         -h | --help )           usage
                                 exit
@@ -31,7 +31,7 @@ done
 
 
 
-INSTALL_DIR=$PWD
+BUILD_LIBREALSENSE_DIR=$PWD
 # Is this the correct kernel version?
 source scripts/jetson_variables.sh
 #Print Jetson version
@@ -42,15 +42,12 @@ echo "Jetpack $JETSON_JETPACK [L4T $JETSON_L4T]"
 # Check to make sure we're installing the correct kernel sources
 L4TTarget="28.2"
 if [ $JETSON_L4T != $L4TTarget ] ; then
-#   echo "Getting kernel sources"
-   # sudo ./scripts/getKernelSources.sh
-# else
    echo ""
    tput setaf 1
    echo "==== L4T Kernel Version Mismatch! ============="
    tput sgr0
    echo ""
-   echo "This repository is for modifying the kernel for L4T "$L4TTarget "system." 
+   echo "This repository is for modifying the kernel for L4T "$L4TTarget "system."
    echo "You are attempting to modify a L4T "$JETSON_L4T "system."
    echo "The L4T releases must match!"
    echo ""
@@ -60,24 +57,20 @@ if [ $JETSON_L4T != $L4TTarget ] ; then
 fi
 
 # Is librealsense on the device?
-LIBREALSENSE_DIRECTORY=${HOME}/librealsense
-LIBREALSENSE_VERSION=v2.10.4
+LIBREALSENSE_DIRECTORY=${HOME}/repositories/librealsense
+LIBREALSENSE_VERSION=v2.13.0
 
 if [ ! -d "$LIBREALSENSE_DIRECTORY" ] ; then
    echo "The librealsense repository directory is not available"
    read -p "Would you like to git clone librealsense? (y/n) " answer
    case ${answer:0:1} in
      y|Y )
-         # clone librealsense
-         cd ${HOME}
+         # install librealsense
+         ./installLibrealsense.sh
          echo "${green}Cloning librealsense${reset}"
-         git clone https://github.com/IntelRealSense/librealsense.git
-         cd librealsense
-         # Checkout version the last tested version of librealsense
-         git checkout $LIBREALSENSE_VERSION
      ;;
      * )
-         echo "Kernel patch and build not started"   
+         echo "Kernel patch and build not started"
          exit 1
      ;;
    esac
@@ -100,52 +93,69 @@ if [ ! $VERSION_TAG  ] ; then
   exit 1
 fi
 
-KERNEL_BUILD_DIR=""
-cd $INSTALL_DIR
-echo "Ready to patch and build kernel "$JETSON_BOARD
-if [ $JETSON_BOARD == "TX2" ] ; then 
-  git clone https://github.com/jetsonhacks/buildJetsonTX2Kernel.git
-  KERNEL_BUILD_DIR=buildJetsonTX2Kernel
-  cd $KERNEL_BUILD_DIR
-  git checkout vL4T28.2r3
-elif [ $JETSON_BOARD == "TX1" ] ; then
-    git clone https://github.com/jetsonhacks/buildJetsonTX1Kernel.git
-    KERNEL_BUILD_DIR=buildJetsonTX1Kernel
-    cd $KERNEL_BUILD_DIR
-    git checkout v1.0-L4T28.2
-  else 
-    tput setaf 1
-    echo "==== Build Issue! ============="
-    tput sgr0
-    echo "There are no build scripts for this Jetson board"
-    exit 1
+KERNEL_BUILD_DIR=${HOME}/repositories/buildJetsonTX2Kernel
+if [ ! -d "$KERNEL_BUILD_DIR" ] ; then
+   echo "The jetsonhacks kernel build repository directory is not available in "$KERNEL_BUILD_DIR
+   read -p "Would you like to git clone buildJetsonTX2Kernel? (y/n) " answer
+   case ${answer:0:1} in
+     y|Y )
+         echo "${green}Cloning buildJetsonTX2Kernel${reset}"
+         cd ${HOME}/repositories
+         git clone https://github.com/rapyuta-robotics/buildJetsonTX2Kernel.git
+     ;;
+     * )
+         echo "Kernel patch and build not started"
+         exit 1
+     ;;
+   esac
 fi
+
+# Checkout the correct branch for kernel building
+cd $KERNEL_BUILD_DIR
+git checkout 28.2.1
+echo "Ready to patch and build kernel "$JETSON_BOARD
 
 # Get the kernel sources; does not open up editor on .config file
 echo "${green}Getting Kernel sources${reset}"
+cd $KERNEL_BUILD_DIR
 ./getKernelSourcesNoGUI.sh
-cd ..
+
 echo "${green}Patching and configuring kernel${reset}"
+cd $BUILD_LIBREALSENSE_DIR
 sudo ./scripts/configureKernel.sh
 sudo ./scripts/patchKernel.sh
 
 cd $KERNEL_BUILD_DIR
+# Apply custom kernel patches
+echo "${green}Apply custom kernel patches${reset}"
+sudo ./applyCustomKernelPatch.sh
+
 # Make the new Image and build the modules
 echo "${green}Building Kernel and Modules${reset}"
 ./makeKernel.sh
+
 # Now copy over the built image
-./copyImage.sh
+echo "Do you wish to copy the image to boot and overwrite the existing image? This action is not reversible."
+select yn in "Y" "N"; do
+    case $yn in
+        y|Y )./copyImage.sh; break;;
+        * ) break;;
+    esac
+done
+
 # Remove buildJetson Kernel scripts
 if [ $CLEANUP == true ]
 then
- echo "Removing Kernel build sources"
- ./removeAllKernelSources.sh
- cd ..
- sudo rm -r $KERNEL_BUILD_DIR
+  echo "Do you want to remove kernel build sources?"
+  select yn in "Y" "N"; do
+    case $yn in
+        y|Y )./removeAllKernelSources.sh; break;;
+        * ) break;;
+    esac
+  done
 else
- echo "Kernel sources are in /usr/src"
+  echo "Kernel sources are in /usr/src"
 fi
-
 
 echo "Please reboot for changes to take effect"
 
