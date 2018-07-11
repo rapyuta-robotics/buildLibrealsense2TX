@@ -134,6 +134,10 @@ sudo ./applyCustomKernelPatch.sh
 echo "${green}Building Kernel and Modules${reset}"
 ./makeKernel.sh
 
+# renable uvcvideo
+echo "${green}Modprobe uvcvideo${reset}"
+modprobe uvcvideo
+
 # Now copy over the built image
 echo "Do you wish to copy the image to boot and overwrite the existing image? This action is not reversible."
 select yn in "Y" "N"; do
